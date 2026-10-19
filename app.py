@@ -51,7 +51,7 @@ def get_ai_client_and_models():
             api_key=gemini_key
         )
         custom_model = os.environ.get("GEMINI_MODEL")
-        models = [m for m in [custom_model, "gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.0-flash-lite"] if m]
+        models = [m for m in [custom_model, "gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.8-flash"] if m]
         return client, models, None
 
     # 2. Standard OpenAI API

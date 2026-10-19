@@ -91,10 +91,14 @@
 
           const data = await response.json();
           chatContainer.removeChild(loadingMessage);
-          addMessage('Bot', data.response, true);
+          if (data && data.response) {
+            addMessage('Bot', data.response, true);
+          } else {
+            addMessage('Bot', 'No response received from the server.', false);
+          }
         } catch (err) {
           chatContainer.removeChild(loadingMessage);
-          addMessage('Bot', 'Sorry, something went wrong.', false);
+          addMessage('Bot', 'Sorry, could not connect to server. Please try again.', false);
         }
       });
 

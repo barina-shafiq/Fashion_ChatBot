@@ -38,15 +38,36 @@ class VercelPathFixer:
 
 app.wsgi_app = VercelPathFixer(app.wsgi_app)
 
-# Read token from environment variable (configured in Vercel or local .env)
-API_KEY = os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_API_KEY")
+def get_ai_client_and_model():
+    """
+    Returns (client, model_name, error_message).
+    Supports Gemini API (recommended & free), OpenAI API, and GitHub Models.
+    """
+    # 1. Google Gemini API (Recommended, 100% Free at https://aistudio.google.com)
+    gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if gemini_key:
+        client = OpenAI(
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            api_key=gemini_key
+        )
+        return client, "gemini-1.5-flash", None
 
-client = None
-if API_KEY:
-    client = OpenAI(
-        base_url="https://models.github.ai/inference",
-        api_key=API_KEY
-    )
+    # 2. Standard OpenAI API
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if openai_key:
+        client = OpenAI(api_key=openai_key)
+        return client, "gpt-4o-mini", None
+
+    # 3. GitHub Models Token (legacy)
+    github_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_API_KEY")
+    if github_token:
+        client = OpenAI(
+            base_url="https://models.github.ai/inference",
+            api_key=github_token
+        )
+        return client, "openai/gpt-4o", None
+
+    return None, None, "No API key configured. Please add GEMINI_API_KEY (from https://aistudio.google.com) in your Vercel Environment Variables or local .env file."
 
 @app.route("/")
 @app.route("/api")
@@ -64,33 +85,35 @@ def chat():
     if not prompt:
         return jsonify({"response": "Please enter a message to begin."}), 400
 
-    api_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_API_KEY")
-    if not api_token:
-        return jsonify({
-            "response": "Error: GITHUB_TOKEN is not configured. Please set the GITHUB_TOKEN environment variable in Vercel or in your local .env file."
-        }), 500
+    client, model, err = get_ai_client_and_model()
+    if err:
+        return jsonify({"response": f"Configuration Error: {err}"}), 500
 
     try:
-        chat_client = client
-        if not chat_client:
-            chat_client = OpenAI(
-                base_url="https://models.github.ai/inference",
-                api_key=api_token
-            )
-
-        response = chat_client.chat.completions.create(
+        response = client.chat.completions.create(
             messages=[
-                {"role": "system", "content": "You are a helpful assistant for a fashion design shop."},
+                {
+                    "role": "system",
+                    "content": "You are a helpful, knowledgeable fashion designer and stylist assistant. Provide stylish, creative, and practical advice on fabrics, colors, outfits, and fashion trends."
+                },
                 {"role": "user", "content": prompt}
             ],
-            model="openai/gpt-4o",
-            temperature=1,
-            max_tokens=4096,
-            top_p=1
+            model=model,
+            temperature=0.8,
+            max_tokens=2048,
         )
-        return jsonify({"response": response.choices[0].message.content})
+
+        # Safely extract response whether object or text
+        if hasattr(response, "choices") and response.choices:
+            content = response.choices[0].message.content
+        elif isinstance(response, str):
+            content = response
+        else:
+            content = str(response)
+
+        return jsonify({"response": content})
     except Exception as e:
-        return jsonify({"response": f"Error: {str(e)}"}), 500
+        return jsonify({"response": f"API Error: {str(e)}"}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)

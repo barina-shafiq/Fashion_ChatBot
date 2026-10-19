@@ -67,18 +67,9 @@ def get_ai_client_and_model():
         )
         return client, "openai/gpt-4o", None
 
-    return None, None, "No API key configured. Please add GEMINI_API_KEY (from https://aistudio.google.com) in your Vercel Environment Variables or local .env file."
+    return None, None, "No API key configured. Please add GEMINI_API_KEY in your Vercel Environment Variables (get a free key at https://aistudio.google.com)."
 
-@app.route("/")
-@app.route("/api")
-@app.route("/api/index")
-def home():
-    return render_template("index.html")
-
-@app.route("/chat", methods=["POST"])
-@app.route("/api/chat", methods=["POST"])
-@app.route("/api/index/chat", methods=["POST"])
-def chat():
+def chat_handler():
     data = request.get_json(silent=True) or {}
     prompt = data.get("prompt", "").strip()
 
@@ -87,7 +78,7 @@ def chat():
 
     client, model, err = get_ai_client_and_model()
     if err:
-        return jsonify({"response": f"Configuration Error: {err}"}), 500
+        return jsonify({"response": f"Configuration Note: {err}"}), 200
 
     try:
         response = client.chat.completions.create(
@@ -107,13 +98,27 @@ def chat():
         if hasattr(response, "choices") and response.choices:
             content = response.choices[0].message.content
         elif isinstance(response, str):
-            content = response
+            content = response.strip()
+            if content.upper() == "OK":
+                content = "GitHub Models is currently unavailable. Please add a free GEMINI_API_KEY (from https://aistudio.google.com) to your Vercel Environment Variables to get instant AI replies."
         else:
             content = str(response)
 
         return jsonify({"response": content})
     except Exception as e:
-        return jsonify({"response": f"API Error: {str(e)}"}), 500
+        return jsonify({"response": f"API Error: {str(e)}"}), 200
+
+# Universal handlers: Route both GET (page) and POST (chat) across all possible rewritten paths
+@app.route("/", methods=["GET", "POST"])
+@app.route("/api", methods=["GET", "POST"])
+@app.route("/api/index", methods=["GET", "POST"])
+@app.route("/chat", methods=["GET", "POST"])
+@app.route("/api/chat", methods=["GET", "POST"])
+@app.route("/api/index/chat", methods=["GET", "POST"])
+def universal_route():
+    if request.method == "POST":
+        return chat_handler()
+    return render_template("index.html")
 
 if __name__ == "__main__":
     app.run(debug=True)

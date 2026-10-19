@@ -89,7 +89,16 @@
             body: JSON.stringify({ prompt: userInput })
           });
 
-          const data = await response.json();
+          let data;
+          try {
+            data = await response.json();
+          } catch (jsonErr) {
+            const rawText = await response.text();
+            chatContainer.removeChild(loadingMessage);
+            addMessage('Bot', 'Server response (' + response.status + '): ' + (rawText || 'Empty response'), false);
+            return;
+          }
+
           chatContainer.removeChild(loadingMessage);
           if (data && data.response) {
             addMessage('Bot', data.response, true);
@@ -98,7 +107,7 @@
           }
         } catch (err) {
           chatContainer.removeChild(loadingMessage);
-          addMessage('Bot', 'Sorry, could not connect to server. Please try again.', false);
+          addMessage('Bot', 'Connection error: ' + (err.message || 'Unable to reach server'), false);
         }
       });
 

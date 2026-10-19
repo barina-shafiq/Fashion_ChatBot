@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlparse
 from flask import Flask, request, jsonify, render_template
 from openai import OpenAI
 
@@ -18,6 +19,25 @@ app = Flask(
     static_folder=os.path.join(BASE_DIR, "static")
 )
 
+# WSGI Middleware to fix Vercel rewrite paths so Flask receives the true request route
+class VercelPathFixer:
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        matched_path = environ.get("HTTP_X_MATCHED_PATH")
+        if matched_path:
+            environ["PATH_INFO"] = urlparse(matched_path).path
+        else:
+            path_info = environ.get("PATH_INFO", "")
+            if path_info.startswith("/api/index"):
+                environ["PATH_INFO"] = path_info[len("/api/index"):] or "/"
+            elif path_info.startswith("/api"):
+                environ["PATH_INFO"] = path_info[len("/api"):] or "/"
+        return self.wsgi_app(environ, start_response)
+
+app.wsgi_app = VercelPathFixer(app.wsgi_app)
+
 # Read token from environment variable (configured in Vercel or local .env)
 API_KEY = os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_API_KEY")
 
@@ -29,10 +49,14 @@ if API_KEY:
     )
 
 @app.route("/")
+@app.route("/api")
+@app.route("/api/index")
 def home():
     return render_template("index.html")
 
 @app.route("/chat", methods=["POST"])
+@app.route("/api/chat", methods=["POST"])
+@app.route("/api/index/chat", methods=["POST"])
 def chat():
     data = request.get_json(silent=True) or {}
     prompt = data.get("prompt", "").strip()

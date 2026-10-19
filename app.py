@@ -38,9 +38,9 @@ class VercelPathFixer:
 
 app.wsgi_app = VercelPathFixer(app.wsgi_app)
 
-def get_ai_client_and_model():
+def get_ai_client_and_models():
     """
-    Returns (client, model_name, error_message).
+    Returns (client, candidate_models_list, error_message).
     Supports Gemini API (recommended & free), OpenAI API, and GitHub Models.
     """
     # 1. Google Gemini API (Recommended, 100% Free at https://aistudio.google.com)
@@ -50,13 +50,17 @@ def get_ai_client_and_model():
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
             api_key=gemini_key
         )
-        return client, "gemini-1.5-flash", None
+        custom_model = os.environ.get("GEMINI_MODEL")
+        models = [m for m in [custom_model, "gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.0-flash-lite"] if m]
+        return client, models, None
 
     # 2. Standard OpenAI API
     openai_key = os.environ.get("OPENAI_API_KEY")
     if openai_key:
         client = OpenAI(api_key=openai_key)
-        return client, "gpt-4o-mini", None
+        custom_model = os.environ.get("OPENAI_MODEL")
+        models = [m for m in [custom_model, "gpt-4o-mini", "gpt-4o"] if m]
+        return client, models, None
 
     # 3. GitHub Models Token (legacy)
     github_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_API_KEY")
@@ -65,7 +69,7 @@ def get_ai_client_and_model():
             base_url="https://models.github.ai/inference",
             api_key=github_token
         )
-        return client, "openai/gpt-4o", None
+        return client, ["openai/gpt-4o"], None
 
     return None, None, "No API key configured. Please add GEMINI_API_KEY in your Vercel Environment Variables (get a free key at https://aistudio.google.com)."
 
@@ -76,37 +80,48 @@ def chat_handler():
     if not prompt:
         return jsonify({"response": "Please enter a message to begin."}), 400
 
-    client, model, err = get_ai_client_and_model()
+    client, models, err = get_ai_client_and_models()
     if err:
         return jsonify({"response": f"Configuration Note: {err}"}), 200
 
-    try:
-        response = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful, knowledgeable fashion designer and stylist assistant. Provide stylish, creative, and practical advice on fabrics, colors, outfits, and fashion trends."
-                },
-                {"role": "user", "content": prompt}
-            ],
-            model=model,
-            temperature=0.8,
-            max_tokens=2048,
-        )
+    last_error = None
+    for model in models:
+        try:
+            response = client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful, creative fashion designer and stylist assistant. Provide stylish, practical advice on fabrics, colors, outfits, and fashion trends."
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                model=model,
+                temperature=0.8,
+                max_tokens=2048,
+            )
 
-        # Safely extract response whether object or text
-        if hasattr(response, "choices") and response.choices:
-            content = response.choices[0].message.content
-        elif isinstance(response, str):
-            content = response.strip()
-            if content.upper() == "OK":
-                content = "GitHub Models is currently unavailable. Please add a free GEMINI_API_KEY (from https://aistudio.google.com) to your Vercel Environment Variables to get instant AI replies."
-        else:
-            content = str(response)
+            # Safely extract response whether object or text
+            if hasattr(response, "choices") and response.choices:
+                content = response.choices[0].message.content
+            elif isinstance(response, str):
+                content = response.strip()
+                if content.upper() == "OK":
+                    content = "GitHub Models is currently unavailable. Please add a free GEMINI_API_KEY (from https://aistudio.google.com) to your Vercel Environment Variables to get instant AI replies."
+            else:
+                content = str(response)
 
-        return jsonify({"response": content})
-    except Exception as e:
-        return jsonify({"response": f"API Error: {str(e)}"}), 200
+            return jsonify({"response": content})
+
+        except Exception as e:
+            last_error = e
+            err_str = str(e)
+            # If the current model is not found (404), fall back to the next candidate model
+            if "404" in err_str or "not found" in err_str.lower():
+                continue
+            # For other errors (authentication, rate limits), stop and return
+            break
+
+    return jsonify({"response": f"API Error: {str(last_error)}"}), 200
 
 # Universal handlers: Route both GET (page) and POST (chat) across all possible rewritten paths
 @app.route("/", methods=["GET", "POST"])

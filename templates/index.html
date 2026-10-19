@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Fashion Design Chatbot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+    <header>
+        Fashion Design Assistant
+        <button id="dark-toggle" aria-label="Toggle dark mode">🌙</button>
+    </header>
+
+    <div id="chat-container">
+        <!-- Chat messages go here -->
+    </div>
+
+    <form id="chat-form">
+        <input
+          type="text"
+          id="user-input"
+          placeholder="Ask about fabrics, colors, styles..."
+          autocomplete="off"
+          required
+        />
+        <button type="submit">Send</button>
+    </form>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+      const form = document.getElementById('chat-form');
+      const input = document.getElementById('user-input');
+      const chatContainer = document.getElementById('chat-container');
+      const darkToggle = document.getElementById('dark-toggle');
+      const body = document.body;
+
+      // Scroll chat to bottom
+      function scrollToBottom() {
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
+
+      // Add a message to chat
+      function addMessage(sender, text, isMarkdown = false) {
+        const block = document.createElement('div');
+        block.className = 'chat-block';
+
+        const label = document.createElement('div');
+        label.className = 'chat-label';
+        label.textContent = sender;
+
+        const message = document.createElement('div');
+        message.className = `message ${sender === 'User' ? 'user' : 'bot'}`;
+
+        if (isMarkdown) {
+          message.innerHTML = marked.parse(text);
+        } else {
+          message.textContent = text;
+        }
+
+        block.appendChild(label);
+        block.appendChild(message);
+        chatContainer.appendChild(block);
+
+        scrollToBottom();
+      }
+
+      // Handle form submit and fetch response
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const userInput = input.value.trim();
+        if (!userInput) return;
+
+        addMessage('User', userInput);
+        input.value = '';
+
+        const loadingMessage = document.createElement('div');
+        loadingMessage.className = 'chat-block loading';
+        loadingMessage.innerHTML = `
+            <div class="chat-label">Bot</div>
+            <div class="message bot">Typing...</div>
+        `;
+        chatContainer.appendChild(loadingMessage);
+        scrollToBottom();
+
+        try {
+          const response = await fetch('/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: userInput })
+          });
+
+          const data = await response.json();
+          chatContainer.removeChild(loadingMessage);
+          addMessage('Bot', data.response, true);
+        } catch (err) {
+          chatContainer.removeChild(loadingMessage);
+          addMessage('Bot', 'Sorry, something went wrong.', false);
+        }
+      });
+
+      // Dark mode toggle handler
+      darkToggle.addEventListener('click', () => {
+        body.classList.toggle('dark-mode');
+        if (body.classList.contains('dark-mode')) {
+          darkToggle.textContent = '☀️';
+        } else {
+          darkToggle.textContent = '🌙';
+        }
+      });
+    </script>
+</body>
+</html>
